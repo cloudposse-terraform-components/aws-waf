@@ -1,70 +1,81 @@
-name: "template"
-
+name: "aws-waf"
 # Canonical GitHub repo
-github_repo: "cloudposse-terraform-components/template"
-
+github_repo: "cloudposse-terraform-components/aws-waf"
 # Short description of this project
 description: |-
-  Description of this component
+  This component is responsible for provisioning an AWS Web Application Firewall (WAF) with an associated managed rule
+  group.
 
-usage: |-
-  **Stack Level**: Regional or Test47
+  ## Usage
+
+  **Stack Level**: Regional
 
   Here's an example snippet for how to use this component.
-  
+
   ```yaml
   components:
     terraform:
-      foo:
+      waf:
         vars:
           enabled: true
+          name: waf
+          acl_name: default
+          default_action: allow
+          description: Default web ACL
+          visibility_config:
+            cloudwatch_metrics_enabled: false
+            metric_name: "default"
+            sampled_requests_enabled: false
+          managed_rule_group_statement_rules:
+            - name: "OWASP-10"
+              # Rules are processed in order based on the value of priority, lowest number first
+              priority: 1
+
+              statement:
+                name: AWSManagedRulesCommonRuleSet
+                vendor_name: AWS
+
+              visibility_config:
+                # Defines and enables Amazon CloudWatch metrics and web request sample collection.
+                cloudwatch_metrics_enabled: false
+                metric_name: "OWASP-10"
+                sampled_requests_enabled: false
   ```
 
+  <!-- prettier-ignore-start -->
+
+  <!-- prettier-ignore-end -->
+
+  ## References
+
+  - [cloudposse/terraform-aws-components](https://github.com/cloudposse/terraform-aws-components/tree/main/modules/waf) -
+    Cloud Posse's upstream component
 include:
   - "docs/terraform.md"
-
 tags:
-  - terraform
-  - terraform-modules
-  - aws
-  - components
-  - terraform-components
-  - root
-  - geodesic
-  - reference-implementation
-  - reference-architecture
-
+  - component/waf
+  - layer/addons
+  - provider/aws
 # Categories of this project
 categories:
-  - terraform-modules/root
-  - terraform-components
-
+  - component/waf
+  - layer/addons
+  - provider/aws
 # License of this project
 license: "APACHE2"
-
 # Badges to display
 badges:
-  - name: "Latest Release"
-    image: "https://img.shields.io/github/release/cloudposse-terraform-components/template.svg?style=for-the-badge"
-    url: "https://github.com/cloudposse-terraform-components/template/releases/latest"
-  - name: "Slack Community"
-    image: "https://slack.cloudposse.com/for-the-badge.svg"
-    url: "https://slack.cloudposse.com"
-
-references:
-  - name: "Cloud Posse Documentation"
-    description: "Complete documentation for the Cloud Posse solution"
-    url: "https://docs.cloudposse.com"
-  - name: "Reference Architectures"
-    description: "Launch effortlessly with our turnkey reference architectures, built either by your team or ours."
-    url: "https://cloudposse.com/"
-
+  - name: Latest Release
+    image: https://img.shields.io/github/release/cloudposse-terraform-components/aws-waf.svg?style=for-the-badge
+    url: https://github.com/cloudposse-terraform-components/aws-waf/releases/latest
+  - name: Slack Community
+    image: https://slack.cloudposse.com/for-the-badge.svg
+    url: https://slack.cloudposse.com
 related:
-- name: "Cloud Posse Terraform Modules"
-  description: Our collection of reusable Terraform modules used by our reference architectures.
-  url: "https://docs.cloudposse.com/modules/"
-- name: "Atmos"
-  description: "Atmos is like docker-compose but for your infrastructure"
-  url: "https://atmos.tools"
-
+  - name: "Cloud Posse Terraform Modules"
+    description: Our collection of reusable Terraform modules used by our reference architectures.
+    url: "https://docs.cloudposse.com/modules/"
+  - name: "Atmos"
+    description: "Atmos is like docker-compose but for your infrastructure"
+    url: "https://atmos.tools"
 contributors: [] # If included generates contribs
