@@ -5,5 +5,3 @@ repository:
   description: This component is responsible for provisioning an AWS Web Application Firewall (WAF) with an associated managed rule group
   homepage: https://cloudposse.com/accelerate
   topics: terraform, terraform-component
-
-
