@@ -1,3 +1,8 @@
 import:
   - orgs/default/test/_defaults
+  - catalog/vpc
+  - catalog/dns-primary
+  - catalog/dns-delegated
+  - catalog/acm
+  - catalog/alb
   - catalog/usecase/basic
