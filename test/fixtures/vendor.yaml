@@ -1,0 +1,77 @@
+apiVersion: atmos/v1
+kind: AtmosVendorConfig
+metadata:
+  name: fixtures
+  description: Atmos vendoring manifest
+spec:
+  sources:
+    - component: "account-map"
+      source: github.com/cloudposse/terraform-aws-components.git//modules/account-map?ref={{.Version}}
+      version: 1.520.0
+      targets:
+        - "components/terraform/account-map"
+      included_paths:
+        - "**/*.tf"
+        - "**/*.md"
+        - "**/*.tftmpl"
+        - "**/modules/**"
+      excluded_paths: []
+
+    - component: "dns-delegated"
+      source: github.com/cloudposse-terraform-components/aws-dns-delegated.git//src?ref={{.Version}}
+      version: add-tests
+      targets:
+        - "components/terraform/dns-delegated"
+      included_paths:
+        - "**/*.tf"
+        - "**/*.md"
+        - "**/*.tftmpl"
+        - "**/modules/**"
+      excluded_paths: []
+
+    - component: "acm"
+      source: github.com/cloudposse-terraform-components/aws-acm.git//src?ref={{.Version}}
+      version: add-tests
+      targets:
+        - "components/terraform/acm"
+      included_paths:
+        - "**/*.tf"
+        - "**/*.md"
+        - "**/*.tftmpl"
+        - "**/modules/**"
+      excluded_paths: []
+
+    - component: "vpc"
+      source: github.com/cloudposse-terraform-components/aws-vpc.git//src?ref={{.Version}}
+      version: added-tests
+      targets:
+        - "components/terraform/vpc"
+      included_paths:
+        - "**/*.tf"
+        - "**/*.md"
+        - "**/*.tftmpl"
+        - "**/modules/**"
+      excluded_paths: []
+
+    - component: "alb"
+      source: github.com/cloudposse-terraform-components/aws-alb.git//src?ref={{.Version}}
+      version: add-tests
+      targets:
+        - "components/terraform/alb"
+      included_paths:
+        - "**/*.tf"
+        - "**/*.md"
+        - "**/*.tftmpl"
+        - "**/modules/**"
+      excluded_paths: []
+
+    - component: "waf"
+      source: "../../src"
+      targets:
+        - "components/terraform/waf"
+      included_paths:
+        - "**/*.tf"
+        - "**/*.md"
+        - "**/*.tftmpl"
+        - "**/modules/**"
+      excluded_paths: []

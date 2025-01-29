@@ -1,0 +1,10 @@
+components:
+  terraform:
+    acm:
+      metadata:
+        component: acm
+      vars:
+        enabled: true
+        domain_name: '{{ (atmos.Component "dns-delegated" "default-test").outputs.default_domain_name }}'
+        process_domain_validation_options: true
+        validation_method: DNS
