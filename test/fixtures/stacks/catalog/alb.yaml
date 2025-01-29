@@ -1,9 +1,8 @@
 components:
   terraform:
-    alb/default:
+    alb:
       metadata:
         component: alb
-        type: abstract
       vars:
         enabled: true
         https_ssl_policy: ELBSecurityPolicy-FS-1-2-Res-2020-10
@@ -11,37 +10,5 @@ components:
         dns_acm_enabled: true
         access_logs_enabled: false
         dns_delegated_environment_name: "ue2"
-
-    alb/a:
-      metadata:
-        component: alb
-        inherits:
-          - alb/default
-      vars:
-        name: "alb-a"
-
-    alb/b:
-      metadata:
-        component: alb
-        inherits:
-          - alb/default
-      vars:
-        name: "alb-b"
         tags:
           waf: "use"
-
-    alb/c:
-      metadata:
-        component: alb
-        inherits:
-          - alb/default
-      vars:
-        name: "alb-c"
-
-    alb/d:
-      metadata:
-        component: alb
-        inherits:
-          - alb/default
-      vars:
-        name: "alb-d"

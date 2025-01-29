@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/wafv2"
@@ -9,6 +10,7 @@ import (
 	"github.com/cloudposse/test-helpers/pkg/atmos"
 	helper "github.com/cloudposse/test-helpers/pkg/atmos/aws-component-helper"
 	"github.com/gruntwork-io/terratest/modules/aws"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,18 +41,10 @@ func TestComponent(t *testing.T) {
 			}
 			atm.GetAndDeploy("dns-delegated", "default-test", inputs)
 			atm.GetAndDeploy("acm", "default-test", map[string]interface{}{})
-			atm.GetAndDeploy("alb/a", "default-test", map[string]interface{}{})
-			atm.GetAndDeploy("alb/b", "default-test", map[string]interface{}{})
-			atm.GetAndDeploy("alb/c", "default-test", map[string]interface{}{})
-			atm.GetAndDeploy("alb/d", "default-test", map[string]interface{}{})
 		})
 
 		// Teardown phase: Destroy the DNS zones created during setup
 		suite.TearDown(t, func(t *testing.T, atm *helper.Atmos) {
-			atm.GetAndDestroy("alb/d", "default-test", map[string]interface{}{})
-			atm.GetAndDestroy("alb/c", "default-test", map[string]interface{}{})
-			atm.GetAndDestroy("alb/b", "default-test", map[string]interface{}{})
-			atm.GetAndDestroy("alb/a", "default-test", map[string]interface{}{})
 			atm.GetAndDestroy("acm", "default-test", map[string]interface{}{})
 
 			// Deploy the delegated DNS zone
@@ -68,8 +62,252 @@ func TestComponent(t *testing.T) {
 		suite.Test(t, "basic", func(t *testing.T, atm *helper.Atmos) {
 			client := NeWAFClient(t, awsRegion)
 
+			uniquesuffix := strings.ToLower(random.UniqueId())
+
+			albComponent := atm.GetAndDeploy("alb", "default-test", map[string]interface{}{})
+			defer atm.Destroy(albComponent)
+
+			albArn := atm.Output(albComponent, "alb_arn")
+
+			inputs := map[string]interface{}{
+				"association_resource_arns": []string{
+					albArn,
+				},
+				"managed_rule_group_statement_rules": []map[string]interface{}{
+					{
+						"name":     "OWASP-10",
+						"priority": 1,
+						"statement": map[string]interface{}{
+							"name":        "AWSManagedRulesCommonRuleSet",
+							"vendor_name": "AWS",
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "OWASP-10",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"byte_match_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-specific-uri-" + uniquesuffix,
+						"priority": 2,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"field_to_match": map[string]interface{}{
+								"uri_path": map[string]interface{}{},
+							},
+							"positional_constraint": "STARTS_WITH",
+							"search_string":         "/admin",
+							"text_transformation": []map[string]interface{}{
+								{
+									"priority": 1,
+									"type":     "NONE",
+								},
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-specific-uri",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"geo_allowlist_statement_rules": []map[string]interface{}{
+					{
+						"name":     "allow-us-traffic-" + uniquesuffix,
+						"priority": 3,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"country_codes": []string{"US"},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "allow-us-traffic",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+			}
+
+			defer atm.GetAndDestroy("waf/basic", "default-test", inputs)
+			component := atm.GetAndDeploy("waf/basic", "default-test", inputs)
+			assert.NotNil(t, component)
+
+			id := atm.Output(component, "id")
+			assert.NotEmpty(t, id)
+
+			arn := atm.Output(component, "arn")
+			assert.NotEmpty(t, arn)
+
+			webACL := getWebACLByIDAndName(t, client, id, arn)
+			require.NotNil(t, webACL)
+			require.NotEmpty(t, webACL.Rules)
+
+			assertOWASPRule(t, webACL.Rules[0])
+			assertBlockSpecificURIRule(t, inputs["byte_match_statement_rules"].([]map[string]interface{})[0], webACL.Rules[1])
+			assertAllowUSTrafficRule(t, inputs["geo_allowlist_statement_rules"].([]map[string]interface{})[0], webACL.Rules[2])
+
+			// Assert custom response body
+			require.NotNil(t, webACL.CustomResponseBodies)
+			defaultResponse, exists := webACL.CustomResponseBodies["default_response"]
+			require.True(t, exists)
+			assert.Equal(t, "Access denied by WAF rules", *defaultResponse.Content)
+			assert.Equal(t, types.ResponseContentTypeTextPlain, defaultResponse.ContentType)
+
+			// Assert default block response
+			require.NotNil(t, webACL.DefaultAction.Block)
+			require.NotNil(t, webACL.DefaultAction.Block.CustomResponse)
+			// TODO: Uncomment when issue https://github.com/cloudposse-terraform-components/aws-waf/issues/15 is fixed
+			// assert.Equal(t, "default_response", *webACL.DefaultAction.Block.CustomResponse.CustomResponseBodyKey)
+			assert.EqualValues(t, 403, *webACL.DefaultAction.Block.CustomResponse.ResponseCode)
+
+			// Assert ALB association with WAF ACL
+			listResourcesOutput, err := client.ListResourcesForWebACL(context.Background(), &wafv2.ListResourcesForWebACLInput{
+				ResourceType: types.ResourceTypeApplicationLoadBalancer,
+				WebACLArn:    &arn,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, listResourcesOutput.ResourceArns)
+			assert.Len(t, listResourcesOutput.ResourceArns, 1)
+			assert.Contains(t, listResourcesOutput.ResourceArns, albArn)
+
+		})
+
+		suite.Test(t, "by-name", func(t *testing.T, atm *helper.Atmos) {
+			client := NeWAFClient(t, awsRegion)
+
+			uniquesuffix := strings.ToLower(random.UniqueId())
+
+			albComponent := atm.GetAndDeploy("alb", "default-test", map[string]interface{}{})
+			defer atm.Destroy(albComponent)
+
+			albArn := atm.Output(albComponent, "alb_arn")
+
+			inputs := map[string]interface{}{
+				"geo_match_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-non-us-traffic-" + uniquesuffix,
+						"priority": 1,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"country_codes": []string{
+								"CA",
+								"MX",
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-non-us-traffic",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"ip_set_reference_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-ip-ranges-" + uniquesuffix,
+						"priority": 2,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"ip_set": map[string]interface{}{
+								"description":        "Block specific IP addresses",
+								"addresses":          []string{"192.0.2.0/24", "198.51.100.0/24"},
+								"ip_address_version": "IPV4",
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-ip-ranges",
+							"sampled_requests_enabled":   false,
+						},
+					},
+					{
+						"name":     "allow-trusted-ips-" + uniquesuffix,
+						"priority": 3,
+						"action":   "allow",
+						"statement": map[string]interface{}{
+							"ip_set": map[string]interface{}{
+								"description":        "Allow trusted IP addresses",
+								"addresses":          []string{"203.0.113.0/24", "198.51.100.128/25"},
+								"ip_address_version": "IPV4",
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "allow-trusted-ips",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"rate_based_statement_rules": []map[string]interface{}{
+					{
+						"name":     "rate-limit-requests-" + uniquesuffix,
+						"priority": 4,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"limit":              2000,
+							"aggregate_key_type": "IP",
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "rate-limit-requests",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+			}
+
+			defer atm.GetAndDestroy("waf/by-name", "default-test", inputs)
+			component := atm.GetAndDeploy("waf/by-name", "default-test", inputs)
+			assert.NotNil(t, component)
+
+			id := atm.Output(component, "id")
+			assert.NotEmpty(t, id)
+
+			arn := atm.Output(component, "arn")
+			assert.NotEmpty(t, arn)
+
+			webACL := getWebACLByIDAndName(t, client, id, arn)
+			require.NotNil(t, webACL)
+			require.NotEmpty(t, webACL.Rules)
+
+			assertBlockNonUSTrafficRule(t, inputs["geo_match_statement_rules"].([]map[string]interface{})[0], webACL.Rules[0])
+			assertBlockIPRangesRule(t, inputs["ip_set_reference_statement_rules"].([]map[string]interface{})[0], webACL.Rules[1], client)
+			assertAllowTrustedIPsRule(t, inputs["ip_set_reference_statement_rules"].([]map[string]interface{})[1], webACL.Rules[2], client)
+			assertRateLimitRequestsRule(t, inputs["rate_based_statement_rules"].([]map[string]interface{})[0], webACL.Rules[3])
+
+			// Assert ALB association with WAF ACL
+			listResourcesOutput, err := client.ListResourcesForWebACL(context.Background(), &wafv2.ListResourcesForWebACLInput{
+				ResourceType: types.ResourceTypeApplicationLoadBalancer,
+				WebACLArn:    &arn,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, listResourcesOutput.ResourceArns)
+			assert.Len(t, listResourcesOutput.ResourceArns, 1)
+			assert.Contains(t, listResourcesOutput.ResourceArns, albArn)
+		})
+
+		suite.Test(t, "by-tags", func(t *testing.T, atm *helper.Atmos) {
+			client := NeWAFClient(t, awsRegion)
+
+			uniquesuffix := strings.ToLower(random.UniqueId())
+			tagValue := "use-" + uniquesuffix
+
+			albComponent := atm.GetAndDeploy("alb", "default-test", map[string]interface{}{
+				"tags": map[string]interface{}{
+					"waf": tagValue,
+				},
+			})
+			defer atm.Destroy(albComponent)
+
+			albArn := atm.Output(albComponent, "alb_arn")
+
 			// Create WAFv2 regexp set
-			patternSet, err := createRegexPatternSet(client, "test-regex-set", "Test regex pattern set", []string{".*admin.*", ".*password.*"})
+			patternSet, err := createRegexPatternSet(client,
+				"test-regex-set-"+uniquesuffix,
+				"Test regex pattern set",
+				[]string{".*admin.*", ".*password.*"},
+			)
 			require.NoError(t, err)
 			require.NotNil(t, patternSet)
 			regexpSetArn := *patternSet.ARN
@@ -80,11 +318,17 @@ func TestComponent(t *testing.T) {
 				require.NoError(t, err)
 			}()
 
+			ruleGroupName := "test-rule-group-" + uniquesuffix
 			// Create WAFv2 rule group
-			ruleGroup, err := createRuleGroup(client, "test-rule-group", "Test rule group", 1000, "test-rule-group-metric")
+			ruleGroup, err := createRuleGroup(client,
+				ruleGroupName,
+				"Test rule group",
+				1000,
+				"test-rule-group-metric",
+			)
 			require.NoError(t, err)
 			require.NotNil(t, ruleGroup)
-			assert.Equal(t, "test-rule-group", *ruleGroup.Name)
+			assert.Equal(t, ruleGroupName, *ruleGroup.Name)
 			ruleGroupArn := *ruleGroup.ARN
 
 			// Clean up rule group after test
@@ -93,21 +337,43 @@ func TestComponent(t *testing.T) {
 				require.NoError(t, err)
 			}()
 
-			albCComponent := helper.NewAtmosComponent("alb/c", "default-test", map[string]interface{}{})
-			albCArn := atm.Output(albCComponent, "alb_arn")
-
 			inputs := map[string]interface{}{
-				"name": "vpc-terraform",
-				"association_resource_arns": []string{
-					albCArn,
+				"alb_tags": []map[string]interface{}{
+					{
+						"waf": tagValue,
+					},
 				},
 				"regex_pattern_set_reference_statement_rules": []map[string]interface{}{
 					{
-						"name":     "block-bad-patterns",
-						"priority": 8,
+						"name":     "block-regexp-patterns-" + uniquesuffix,
+						"priority": 1,
 						"action":   "block",
 						"statement": map[string]interface{}{
 							"arn": regexpSetArn,
+							"field_to_match": map[string]interface{}{
+								"uri_path": true,
+							},
+							"text_transformation": []map[string]interface{}{
+								{
+									"priority": 1,
+									"type":     "NONE",
+								},
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-regexp-patterns",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"regex_match_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-bad-pattern-" + uniquesuffix,
+						"priority": 2,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"regex_string": ".*user.*",
 							"field_to_match": map[string]interface{}{
 								"uri_path": true,
 							},
@@ -127,9 +393,9 @@ func TestComponent(t *testing.T) {
 				},
 				"rule_group_reference_statement_rules": []map[string]interface{}{
 					{
-						"name":            "block-rule-group",
-						"priority":        10,
-						"override_action": "none",
+						"name":     "block-rule-group-" + uniquesuffix,
+						"priority": 3,
+						"action":   "block",
 						"statement": map[string]interface{}{
 							"arn": ruleGroupArn,
 						},
@@ -142,8 +408,8 @@ func TestComponent(t *testing.T) {
 				},
 			}
 
-			defer atm.GetAndDestroy("waf/basic", "default-test", inputs)
-			component := atm.GetAndDeploy("waf/basic", "default-test", inputs)
+			defer atm.GetAndDestroy("waf/by-tags", "default-test", inputs)
+			component := atm.GetAndDeploy("waf/by-tags", "default-test", inputs)
 			assert.NotNil(t, component)
 
 			id := atm.Output(component, "id")
@@ -152,53 +418,13 @@ func TestComponent(t *testing.T) {
 			arn := atm.Output(component, "arn")
 			assert.NotEmpty(t, arn)
 
-			name := "eg-default-ue2-test-vpc-terraform-bd14af-3ebefc"
-			wafACLOutput, err := client.GetWebACL(context.Background(), &wafv2.GetWebACLInput{
-				Id:    &id,
-				Name:  &name,
-				Scope: types.ScopeRegional,
-			})
-			require.NoError(t, err)
-			webACL := wafACLOutput.WebACL
+			webACL := getWebACLByIDAndName(t, client, id, arn)
 			require.NotNil(t, webACL)
 			require.NotEmpty(t, webACL.Rules)
 
-			assertOWASPRule(t, webACL.Rules[0])
-			assertBlockSpecificURIRule(t, webACL.Rules[1])
-			assertAllowUSTrafficRule(t, webACL.Rules[2])
-			assertBlockNonUSTrafficRule(t, webACL.Rules[3])
-			assertBlockIPRangesRule(t, webACL.Rules[4], client)
-			assertAllowTrustedIPsRule(t, webACL.Rules[5], client)
-			assertRateLimitRequestsRule(t, webACL.Rules[6])
-			assertBlockBadPatternsRule(t, webACL.Rules[7], regexpSetArn)
-			assertBlockBadPatternRule(t, webACL.Rules[8])
-			assertBlockRuleGroupRule(t, webACL.Rules[9], ruleGroupArn)
-			assertBlockLargeBodyRule(t, webACL.Rules[10])
-			assertBlockSQLInjectionRule(t, webACL.Rules[11])
-			assertBlockXSSRule(t, webACL.Rules[12])
-
-			// Assert custom response body
-			require.NotNil(t, webACL.CustomResponseBodies)
-			defaultResponse, exists := webACL.CustomResponseBodies["default_response"]
-			require.True(t, exists)
-			assert.Equal(t, "Access denied by WAF rules", *defaultResponse.Content)
-			assert.Equal(t, types.ResponseContentTypeTextPlain, defaultResponse.ContentType)
-
-			// Assert default block response
-			require.NotNil(t, webACL.DefaultAction.Block)
-			require.NotNil(t, webACL.DefaultAction.Block.CustomResponse)
-			// TODO: Uncomment when issue https://github.com/cloudposse-terraform-components/aws-waf/issues/15 is fixed
-			// assert.Equal(t, "default_response", *webACL.DefaultAction.Block.CustomResponse.CustomResponseBodyKey)
-			assert.EqualValues(t, 403, *webACL.DefaultAction.Block.CustomResponse.ResponseCode)
-
-			albAComponent := helper.NewAtmosComponent("alb/a", "default-test", map[string]interface{}{})
-			albAArn := atm.Output(albAComponent, "alb_arn")
-
-			albBComponent := helper.NewAtmosComponent("alb/b", "default-test", map[string]interface{}{})
-			albBArn := atm.Output(albBComponent, "alb_arn")
-
-			albDComponent := helper.NewAtmosComponent("alb/d", "default-test", map[string]interface{}{})
-			albDArn := atm.Output(albDComponent, "alb_arn")
+			assertBlockBadPatternsRule(t, inputs["regex_pattern_set_reference_statement_rules"].([]map[string]interface{})[0], webACL.Rules[0], regexpSetArn)
+			assertBlockBadPatternRule(t, inputs["regex_match_statement_rules"].([]map[string]interface{})[0], webACL.Rules[1])
+			assertBlockRuleGroupRule(t, inputs["rule_group_reference_statement_rules"].([]map[string]interface{})[0], webACL.Rules[2], ruleGroupArn)
 
 			// Assert ALB association with WAF ACL
 			listResourcesOutput, err := client.ListResourcesForWebACL(context.Background(), &wafv2.ListResourcesForWebACLInput{
@@ -207,14 +433,135 @@ func TestComponent(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, listResourcesOutput.ResourceArns)
-			assert.Len(t, listResourcesOutput.ResourceArns, 4)
-			assert.Contains(t, listResourcesOutput.ResourceArns, albAArn)
-			assert.Contains(t, listResourcesOutput.ResourceArns, albBArn)
-			assert.Contains(t, listResourcesOutput.ResourceArns, albCArn)
-			assert.Contains(t, listResourcesOutput.ResourceArns, albDArn)
-
+			assert.Len(t, listResourcesOutput.ResourceArns, 1)
+			assert.Contains(t, listResourcesOutput.ResourceArns, albArn)
 		})
+
+		suite.Test(t, "by-component", func(t *testing.T, atm *helper.Atmos) {
+			client := NeWAFClient(t, awsRegion)
+
+			uniquesuffix := strings.ToLower(random.UniqueId())
+
+			albComponent := atm.GetAndDeploy("alb", "default-test", map[string]interface{}{})
+			defer atm.Destroy(albComponent)
+
+			albArn := atm.Output(albComponent, "alb_arn")
+
+			inputs := map[string]interface{}{
+				"size_constraint_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-large-body-" + uniquesuffix,
+						"priority": 1,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"size":                8192,
+							"comparison_operator": "GT",
+							"field_to_match": map[string]interface{}{
+								"body": map[string]interface{}{},
+							},
+							"text_transformation": []map[string]interface{}{
+								{
+									"priority": 1,
+									"type":     "NONE",
+								},
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-large-body",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"sqli_match_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-sql-injection-" + uniquesuffix,
+						"priority": 2,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"field_to_match": map[string]interface{}{
+								"body": map[string]interface{}{},
+							},
+							"text_transformation": []map[string]interface{}{
+								{
+									"priority": 1,
+									"type":     "NONE",
+								},
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-sql-injection",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+				"xss_match_statement_rules": []map[string]interface{}{
+					{
+						"name":     "block-xss-" + uniquesuffix,
+						"priority": 3,
+						"action":   "block",
+						"statement": map[string]interface{}{
+							"field_to_match": map[string]interface{}{
+								"body": map[string]interface{}{},
+							},
+							"text_transformation": []map[string]interface{}{
+								{
+									"priority": 1,
+									"type":     "NONE",
+								},
+							},
+						},
+						"visibility_config": map[string]interface{}{
+							"cloudwatch_metrics_enabled": false,
+							"metric_name":                "block-xss",
+							"sampled_requests_enabled":   false,
+						},
+					},
+				},
+			}
+
+			defer atm.GetAndDestroy("waf/by-component", "default-test", inputs)
+			component := atm.GetAndDeploy("waf/by-component", "default-test", inputs)
+			assert.NotNil(t, component)
+
+			id := atm.Output(component, "id")
+			assert.NotEmpty(t, id)
+
+			arn := atm.Output(component, "arn")
+			assert.NotEmpty(t, arn)
+
+			webACL := getWebACLByIDAndName(t, client, id, arn)
+			require.NotNil(t, webACL)
+			require.NotEmpty(t, webACL.Rules)
+
+			assertBlockLargeBodyRule(t, inputs["size_constraint_statement_rules"].([]map[string]interface{})[0], webACL.Rules[0])
+			assertBlockSQLInjectionRule(t, inputs["sqli_match_statement_rules"].([]map[string]interface{})[0], webACL.Rules[1])
+			assertBlockXSSRule(t, inputs["xss_match_statement_rules"].([]map[string]interface{})[0], webACL.Rules[2])
+			// Assert ALB association with WAF ACL
+			listResourcesOutput, err := client.ListResourcesForWebACL(context.Background(), &wafv2.ListResourcesForWebACLInput{
+				ResourceType: types.ResourceTypeApplicationLoadBalancer,
+				WebACLArn:    &arn,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, listResourcesOutput.ResourceArns)
+			assert.Len(t, listResourcesOutput.ResourceArns, 1)
+			assert.Contains(t, listResourcesOutput.ResourceArns, albArn)
+		})
+
 	})
+}
+
+func getWebACLByIDAndName(t *testing.T, client *wafv2.Client, id string, arn string) *types.WebACL {
+	arnParts := strings.Split(arn, "/")
+	name := arnParts[len(arnParts)-2]
+	wafACLOutput, err := client.GetWebACL(context.Background(), &wafv2.GetWebACLInput{
+		Id:    &id,
+		Name:  &name,
+		Scope: types.ScopeRegional,
+	})
+	require.NoError(t, err)
+	return wafACLOutput.WebACL
 }
 
 func assertOWASPRule(t *testing.T, rule types.Rule) {
@@ -225,9 +572,9 @@ func assertOWASPRule(t *testing.T, rule types.Rule) {
 	require.Nil(t, rule.Action)
 }
 
-func assertBlockSpecificURIRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "block-specific-uri", *rule.Name)
-	assert.EqualValues(t, 2, rule.Priority)
+func assertBlockSpecificURIRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.Nil(t, rule.Action.Allow)
 	assert.NotNil(t, rule.Action.Block)
 
@@ -242,9 +589,9 @@ func assertBlockSpecificURIRule(t *testing.T, rule types.Rule) {
 	assert.EqualValues(t, 1, statement.TextTransformations[0].Priority)
 }
 
-func assertAllowUSTrafficRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "allow-us-traffic", *rule.Name)
-	assert.EqualValues(t, 3, rule.Priority)
+func assertAllowUSTrafficRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 
@@ -253,9 +600,9 @@ func assertAllowUSTrafficRule(t *testing.T, rule types.Rule) {
 	assert.EqualValues(t, "US", statement.CountryCodes[0])
 }
 
-func assertBlockNonUSTrafficRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "block-non-us-traffic", *rule.Name)
-	assert.EqualValues(t, 4, rule.Priority)
+func assertBlockNonUSTrafficRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 
@@ -265,9 +612,9 @@ func assertBlockNonUSTrafficRule(t *testing.T, rule types.Rule) {
 	assert.EqualValues(t, "MX", statement.CountryCodes[1])
 }
 
-func assertBlockIPRangesRule(t *testing.T, rule types.Rule, client *wafv2.Client) {
-	assert.Equal(t, "block-ip-ranges", *rule.Name)
-	assert.EqualValues(t, 5, rule.Priority)
+func assertBlockIPRangesRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule, client *wafv2.Client) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 
@@ -279,9 +626,9 @@ func assertBlockIPRangesRule(t *testing.T, rule types.Rule, client *wafv2.Client
 	assert.Equal(t, "192.0.2.0/24", ipSet.IPSet.Addresses[1])
 }
 
-func assertAllowTrustedIPsRule(t *testing.T, rule types.Rule, client *wafv2.Client) {
-	assert.Equal(t, "allow-trusted-ips", *rule.Name)
-	assert.EqualValues(t, 6, rule.Priority)
+func assertAllowTrustedIPsRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule, client *wafv2.Client) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Allow)
 	assert.Nil(t, rule.Action.Block)
 
@@ -293,9 +640,9 @@ func assertAllowTrustedIPsRule(t *testing.T, rule types.Rule, client *wafv2.Clie
 	assert.Equal(t, "203.0.113.0/24", ipSet.IPSet.Addresses[0])
 }
 
-func assertRateLimitRequestsRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "rate-limit-requests", *rule.Name)
-	assert.EqualValues(t, 7, rule.Priority)
+func assertRateLimitRequestsRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 
@@ -305,9 +652,9 @@ func assertRateLimitRequestsRule(t *testing.T, rule types.Rule) {
 	assert.Equal(t, types.RateBasedStatementAggregateKeyTypeIp, statement.AggregateKeyType)
 }
 
-func assertBlockBadPatternsRule(t *testing.T, rule types.Rule, regexpSetArn string) {
-	assert.Equal(t, "block-bad-patterns", *rule.Name)
-	assert.EqualValues(t, 8, rule.Priority)
+func assertBlockBadPatternsRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule, regexpSetArn string) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 
@@ -319,9 +666,9 @@ func assertBlockBadPatternsRule(t *testing.T, rule types.Rule, regexpSetArn stri
 	assert.EqualValues(t, 1, statement.TextTransformations[0].Priority)
 }
 
-func assertBlockBadPatternRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "block-bad-pattern", *rule.Name)
-	assert.EqualValues(t, 9, rule.Priority)
+func assertBlockBadPatternRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 
@@ -333,9 +680,9 @@ func assertBlockBadPatternRule(t *testing.T, rule types.Rule) {
 	assert.EqualValues(t, 1, statement.TextTransformations[0].Priority)
 }
 
-func assertBlockRuleGroupRule(t *testing.T, rule types.Rule, ruleGroupArn string) {
-	assert.Equal(t, "block-rule-group", *rule.Name)
-	assert.EqualValues(t, 10, rule.Priority)
+func assertBlockRuleGroupRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule, ruleGroupArn string) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.Nil(t, rule.Action)
 	assert.NotNil(t, rule.OverrideAction)
 
@@ -344,9 +691,9 @@ func assertBlockRuleGroupRule(t *testing.T, rule types.Rule, ruleGroupArn string
 	assert.Equal(t, ruleGroupArn, *statement.ARN)
 }
 
-func assertBlockLargeBodyRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "block-large-body", *rule.Name)
-	assert.EqualValues(t, 11, rule.Priority)
+func assertBlockLargeBodyRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 	assert.Nil(t, rule.OverrideAction)
@@ -361,9 +708,9 @@ func assertBlockLargeBodyRule(t *testing.T, rule types.Rule) {
 	assert.EqualValues(t, 1, statement.TextTransformations[0].Priority)
 }
 
-func assertBlockSQLInjectionRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "block-sql-injection", *rule.Name)
-	assert.EqualValues(t, 12, rule.Priority)
+func assertBlockSQLInjectionRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 	assert.Nil(t, rule.OverrideAction)
@@ -376,9 +723,9 @@ func assertBlockSQLInjectionRule(t *testing.T, rule types.Rule) {
 	assert.EqualValues(t, 1, statement.TextTransformations[0].Priority)
 }
 
-func assertBlockXSSRule(t *testing.T, rule types.Rule) {
-	assert.Equal(t, "block-xss", *rule.Name)
-	assert.EqualValues(t, 13, rule.Priority)
+func assertBlockXSSRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
 	assert.NotNil(t, rule.Action.Block)
 	assert.Nil(t, rule.Action.Allow)
 	assert.Nil(t, rule.OverrideAction)

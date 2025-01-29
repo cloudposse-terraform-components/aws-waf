@@ -9,13 +9,6 @@ components:
         acl_name: default
         description: Default web ACL
         scope: REGIONAL
-        alb_names:
-          - '{{ (atmos.Component "alb/a" "default-test").outputs.alb_name }}'
-        alb_tags:
-          - waf: "use"
-        association_resource_component_selectors:
-          - component: "alb/d"
-            component_arn_output: "alb_arn"
         default_action: block
         # TODO: Uncomment when issue https://github.com/cloudposse-terraform-components/aws-waf/issues/15 is fixed
         # default_custom_response_body_key: "default_response"
@@ -28,6 +21,18 @@ components:
           cloudwatch_metrics_enabled: false
           metric_name: "default"
           sampled_requests_enabled: false
+        managed_rule_group_statement_rules:
+          - name: "OWASP-10"
+            # Rules are processed in order based on the value of priority, lowest number first
+            priority: 1
+            statement:
+              name: AWSManagedRulesCommonRuleSet
+              vendor_name: AWS
+            visibility_config:
+              # Defines and enables Amazon CloudWatch metrics and web request sample collection.
+              cloudwatch_metrics_enabled: false
+              metric_name: "OWASP-10"
+              sampled_requests_enabled: false
         byte_match_statement_rules:
           - name: "block-specific-uri"
             priority: 2
@@ -55,154 +60,4 @@ components:
               cloudwatch_metrics_enabled: false
               metric_name: "allow-us-traffic"
               sampled_requests_enabled: false
-        geo_match_statement_rules:
-          - name: "block-non-us-traffic"
-            priority: 4
-            action: block
-            statement:
-              country_codes:
-                - "CA"
-                - "MX"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "block-non-us-traffic"
-              sampled_requests_enabled: false
-        ip_set_reference_statement_rules:
-          - name: "block-ip-ranges"
-            priority: 5
-            action: block
-            statement:
-              ip_set:
-                description: "Block specific IP addresses"
-                addresses:
-                  - "192.0.2.0/24"
-                  - "198.51.100.0/24"
-                ip_address_version: "IPV4"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "block-ip-ranges"
-              sampled_requests_enabled: false
-          - name: "allow-trusted-ips"
-            priority: 6
-            action: allow
-            statement:
-              ip_set:
-                description: "Allow trusted IP addresses"
-                addresses:
-                  - "203.0.113.0/24"
-                  - "198.51.100.128/25"
-                ip_address_version: "IPV4"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "allow-trusted-ips"
-              sampled_requests_enabled: false
-        managed_rule_group_statement_rules:
-          - name: "OWASP-10"
-            # Rules are processed in order based on the value of priority, lowest number first
-            priority: 1
-            statement:
-              name: AWSManagedRulesCommonRuleSet
-              vendor_name: AWS
-            visibility_config:
-              # Defines and enables Amazon CloudWatch metrics and web request sample collection.
-              cloudwatch_metrics_enabled: false
-              metric_name: "OWASP-10"
-              sampled_requests_enabled: false
-        rate_based_statement_rules:
-          - name: "rate-limit-requests"
-            priority: 7
-            action: block
-            statement:
-              limit: 2000
-              aggregate_key_type: "IP"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "rate-limit-requests"
-              sampled_requests_enabled: false
-        # # Uncomment when we will have component that creates regex pattern set
-        # regex_pattern_set_reference_statement_rules:
-        #   - name: "block-bad-patterns"
-        #     priority: 8
-        #     action: block
-        #     statement:
-        #       arn: "arn:aws:wafv2:us-east-2:123456789012:regional/regexpatternset/bad-patterns/abcdef12-3456-7890-abcd-ef1234567890"
-        #       field_to_match:
-        #         uri_path: true
-        #       text_transformation:
-        #         - priority: 1
-        #           type: "NONE"
-        #     visibility_config:
-        #       cloudwatch_metrics_enabled: false
-        #       metric_name: "block-bad-patterns"
-        regex_match_statement_rules:
-          - name: "block-bad-pattern"
-            priority: 9
-            action: block
-            statement:
-              regex_string: ".*user.*"
-              field_to_match:
-                uri_path: true
-              text_transformation:
-                - priority: 1
-                  type: "NONE"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "block-bad-patterns"
-              sampled_requests_enabled: false
-        # # Uncomment when we will have component that creates rule group
-        # rule_group_reference_statement_rules:
-        #   - name: "block-rule-group"
-        #     priority: 10
-        #     action:  block
-        #     statement:
-        #       arn: "arn:aws:wafv2:us-east-2:123456789012:regional/rulegroup/example-rule-group/abcdef12-3456-7890-abcd-ef1234567890"
-        #     visibility_config:
-        #       cloudwatch_metrics_enabled: false
-        #       metric_name: "block-rule-group"
-        #       sampled_requests_enabled: false
-        size_constraint_statement_rules:
-          - name: "block-large-body"
-            priority: 11
-            action: block
-            statement:
-              size: 8192
-              comparison_operator: "GT"
-              field_to_match:
-                body: {}
-              text_transformation:
-                - priority: 1
-                  type: "NONE"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "block-large-body"
-              sampled_requests_enabled: false
-        sqli_match_statement_rules:
-          - name: "block-sql-injection"
-            priority: 12
-            action: block
-            statement:
-              field_to_match:
-                body: {}
-              text_transformation:
-                - priority: 1
-                  type: "NONE"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "block-sql-injection"
-              sampled_requests_enabled: false
-        xss_match_statement_rules:
-          - name: "block-xss"
-            priority: 13
-            action: block
-            statement:
-              field_to_match:
-                body: {}
-              text_transformation:
-                - priority: 1
-                  type: "NONE"
-            visibility_config:
-              cloudwatch_metrics_enabled: false
-              metric_name: "block-xss"
-              sampled_requests_enabled: false
-
 

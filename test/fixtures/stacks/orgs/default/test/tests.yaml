@@ -6,3 +6,6 @@ import:
   - catalog/acm
   - catalog/alb
   - catalog/usecase/basic
+  - catalog/usecase/by-name
+  - catalog/usecase/by-tags
+  - catalog/usecase/by-component
