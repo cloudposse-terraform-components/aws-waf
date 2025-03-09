@@ -2,7 +2,7 @@ components:
   terraform:
     waf/by-tags:
       metadata:
-        component: waf
+        component: target
       vars:
         enabled: true
         name: "waf"

@@ -1,10 +1,10 @@
 components:
   terraform:
-    waf/basic:
+    waf/disabled:
       metadata:
         component: target
       vars:
-        enabled: true
+        enabled: false
         name: "waf"
         acl_name: default
         description: Default web ACL
