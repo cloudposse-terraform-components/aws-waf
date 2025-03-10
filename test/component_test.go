@@ -65,6 +65,7 @@ func (s *ComponentSuite) TestBasic() {
 	albArn := atmos.Output(s.T(), albOptions, "alb_arn")
 
 	inputs := map[string]interface{}{
+		"ssm_path_prefix": fmt.Sprintf("/waf/%s", uniquesuffix),
 		"attributes": []string{
 			uniquesuffix,
 		},
@@ -186,6 +187,7 @@ func (s *ComponentSuite) TestByName() {
 	albArn := atmos.Output(s.T(), albOptions, "alb_arn")
 
 	inputs := map[string]interface{}{
+		"ssm_path_prefix": fmt.Sprintf("/waf/%s", uniquesuffix),
 		"attributes": []string{
 			uniquesuffix,
 		},
@@ -357,6 +359,7 @@ func (s *ComponentSuite) TestByTags() {
 	}()
 
 	inputs := map[string]interface{}{
+		"ssm_path_prefix": fmt.Sprintf("/waf/%s", uniquesuffix),
 		"alb_tags": []map[string]interface{}{
 			{
 				"waf": tagValue,
@@ -471,6 +474,7 @@ func (s *ComponentSuite) TestByComponent() {
 	albArn := atmos.Output(s.T(), albOptions, "alb_arn")
 
 	inputs := map[string]interface{}{
+		"ssm_path_prefix": fmt.Sprintf("/waf/%s", uniquesuffix),
 		"size_constraint_statement_rules": []map[string]interface{}{
 			{
 				"name":     "block-large-body-" + uniquesuffix,
