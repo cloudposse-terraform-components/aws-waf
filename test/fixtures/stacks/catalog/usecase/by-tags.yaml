@@ -5,7 +5,7 @@ components:
         component: target
       vars:
         enabled: true
-        name: "waf"
+        name: "waf-by-tags"
         acl_name: default
         description: Default web ACL
         scope: REGIONAL

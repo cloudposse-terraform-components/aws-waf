@@ -5,12 +5,12 @@ components:
         component: target
       vars:
         enabled: true
-        name: "waf"
+        name: "waf-by-component"
         acl_name: default
         description: Default web ACL
         scope: REGIONAL
         association_resource_component_selectors:
-          - component: "alb"
+          - component: "alb/by-component"
             component_arn_output: "alb_arn"
         visibility_config:
           cloudwatch_metrics_enabled: false

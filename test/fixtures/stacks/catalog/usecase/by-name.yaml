@@ -5,12 +5,12 @@ components:
         component: target
       vars:
         enabled: true
-        name: "waf"
+        name: "waf-by-name"
         acl_name: default
         description: Default web ACL
         scope: REGIONAL
         alb_names:
-          - '{{ (atmos.Component "alb" "default-test").outputs.alb_name }}'
+          - '{{ (atmos.Component "alb/by-name" "default-test").outputs.alb_name }}'
         visibility_config:
           cloudwatch_metrics_enabled: false
           metric_name: "default"
