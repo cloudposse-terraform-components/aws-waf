@@ -1,0 +1,70 @@
+components:
+  terraform:
+    waf/by-name:
+      metadata:
+        component: target
+      vars:
+        enabled: true
+        name: "waf-by-name"
+        acl_name: default
+        description: Default web ACL
+        scope: REGIONAL
+        alb_names:
+          - '{{ (atmos.Component "alb/by-name" "default-test").outputs.alb_name }}'
+        visibility_config:
+          cloudwatch_metrics_enabled: false
+          metric_name: "default"
+          sampled_requests_enabled: false
+        geo_match_statement_rules:
+          - name: "block-non-us-traffic"
+            priority: 1
+            action: block
+            statement:
+              country_codes:
+                - "CA"
+                - "MX"
+            visibility_config:
+              cloudwatch_metrics_enabled: false
+              metric_name: "block-non-us-traffic"
+              sampled_requests_enabled: false
+        ip_set_reference_statement_rules:
+          - name: "block-ip-ranges"
+            priority: 2
+            action: block
+            statement:
+              ip_set:
+                description: "Block specific IP addresses"
+                addresses:
+                  - "192.0.2.0/24"
+                  - "198.51.100.0/24"
+                ip_address_version: "IPV4"
+            visibility_config:
+              cloudwatch_metrics_enabled: false
+              metric_name: "block-ip-ranges"
+              sampled_requests_enabled: false
+          - name: "allow-trusted-ips"
+            priority: 3
+            action: allow
+            statement:
+              ip_set:
+                description: "Allow trusted IP addresses"
+                addresses:
+                  - "203.0.113.0/24"
+                  - "198.51.100.128/25"
+                ip_address_version: "IPV4"
+            visibility_config:
+              cloudwatch_metrics_enabled: false
+              metric_name: "allow-trusted-ips"
+              sampled_requests_enabled: false
+        rate_based_statement_rules:
+          - name: "rate-limit-requests"
+            priority: 4
+            action: block
+            statement:
+              limit: 2000
+              aggregate_key_type: "IP"
+            visibility_config:
+              cloudwatch_metrics_enabled: false
+              metric_name: "rate-limit-requests"
+              sampled_requests_enabled: false
+

@@ -1,0 +1,51 @@
+components:
+  terraform:
+    alb:
+      metadata:
+        component: alb
+        type: abstract
+      vars:
+        enabled: true
+        https_ssl_policy: ELBSecurityPolicy-FS-1-2-Res-2020-10
+        health_check_path: /api/healthz
+        dns_acm_enabled: true
+        access_logs_enabled: false
+        dns_delegated_environment_name: "ue2"
+        tags:
+          waf: "use"
+
+    alb/basic:
+      metadata:
+        component: alb
+        inherits:
+          - alb
+      vars:
+        name: "alb-basic"
+        enabled: true
+
+    alb/by-name:
+      metadata:
+        component: alb
+        inherits:
+          - alb
+      vars:
+        name: "alb-by-name"
+        enabled: true
+
+    alb/by-tags:
+      metadata:
+        component: alb
+        inherits:
+          - alb
+      vars:
+        name: "alb-by-tags"
+        enabled: true
+
+    alb/by-component:
+      metadata:
+        component: alb
+        inherits:
+          - alb
+      vars:
+        name: "alb-by-component"
+        enabled: true
