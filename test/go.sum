@@ -107,10 +107,8 @@ github.com/charmbracelet/lipgloss v0.10.0 h1:KWeXFSexGcfahHX+54URiZGkBFazf70JNMt
 github.com/charmbracelet/lipgloss v0.10.0/go.mod h1:Wig9DSfvANsxqkRsqj6x87irdy123SR4dOXlKa91ciE=
 github.com/charmbracelet/log v0.4.0 h1:G9bQAcx8rWA2T3pWvx7YtPTPwgqpk7D68BX21IRW8ZM=
 github.com/charmbracelet/log v0.4.0/go.mod h1:63bXt/djrizTec0l11H20t8FDSvA4CRZJ1KH22MdptM=
-github.com/cloudposse/test-helpers v0.19.1-0.20250310181500-884043a1718d h1:l7a8ctG//VUNeQHoQzLa0aNkTpdi1PiRtBkRjuFlqQk=
-github.com/cloudposse/test-helpers v0.19.1-0.20250310181500-884043a1718d/go.mod h1:KYnvHtaDHIGCKNSZOWx3EfHcYOI991S9R362385g9zc=
-github.com/cloudposse/test-helpers v0.19.1-0.20250310190513-eafd23de76ec h1:+8EtLBnzTMppdEOfh7MM27RW/1lgLgnho4gX0u4q4+4=
-github.com/cloudposse/test-helpers v0.19.1-0.20250310190513-eafd23de76ec/go.mod h1:KYnvHtaDHIGCKNSZOWx3EfHcYOI991S9R362385g9zc=
+github.com/cloudposse/test-helpers v0.20.0 h1:vD32FkVkzDxgQLezZlaTJ7TlyskxBNCW74U5N3LaYCc=
+github.com/cloudposse/test-helpers v0.20.0/go.mod h1:KYnvHtaDHIGCKNSZOWx3EfHcYOI991S9R362385g9zc=
 github.com/cpuguy83/go-md2man/v2 v2.0.5 h1:ZtcqGrnekaHpVLArFSe4HK5DoKx1T0rq2DwVB0alcyc=
 github.com/cpuguy83/go-md2man/v2 v2.0.5/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
