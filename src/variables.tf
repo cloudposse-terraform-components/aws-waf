@@ -407,9 +407,29 @@ variable "managed_rule_group_statement_rules" {
     }), null)
     rule_label = optional(list(string), null)
     statement = object({
-      name        = string
-      vendor_name = string
-      version     = optional(string)
+      name                             = string
+      vendor_name                      = string
+      version                          = optional(string)
+      scope_down_not_statement_enabled = optional(bool, false)
+      scope_down_statement = optional(object({
+        byte_match_statement = object({
+          positional_constraint = string
+          search_string         = string
+          field_to_match = object({
+            all_query_arguments   = optional(bool)
+            body                  = optional(bool)
+            method                = optional(bool)
+            query_string          = optional(bool)
+            single_header         = optional(object({ name = string }))
+            single_query_argument = optional(object({ name = string }))
+            uri_path              = optional(bool)
+          })
+          text_transformation = list(object({
+            priority = number
+            type     = string
+          }))
+        })
+      }), null)
       rule_action_override = optional(map(object({
         action = string
         custom_request_handling = optional(object({
@@ -508,6 +528,11 @@ variable "managed_rule_group_statement_rules" {
       version:
         The version of the managed rule group.
         You can set `Version_1.0` or `Version_1.1` etc. If you want to use the default version, do not set anything.
+      scope_down_not_statement_enabled:
+        Whether to wrap the scope_down_statement inside of a not_statement.
+        Refer to https://docs.aws.amazon.com/waf/latest/developerguide/waf-bot-control-example-scope-down-your-bot.html
+      scope_down_statement:
+        Nested statement that narrows the scope of the rate-based statement to matching web requests.
       rule_action_override:
         Action settings to use in the place of the rule actions that are configured inside the rule group.
         You specify one override for each rule whose action you want to change.
