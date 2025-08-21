@@ -43,9 +43,9 @@ usage: |-
   <!-- prettier-ignore-start -->
   <!-- prettier-ignore-end -->
 references:
-  - name: cloudposse/terraform-aws-components
-    url: https://github.com/cloudposse/terraform-aws-components/tree/main/modules/waf
-    description: Cloud Posse's upstream component
+  - name: cloudposse-terraform-components
+    url: https://github.com/orgs/cloudposse-terraform-components/repositories
+    description: "Cloud Posse's upstream component"
 tags:
   - component/waf
   - layer/addons
