@@ -18,7 +18,7 @@ locals {
 
 module "aws_waf" {
   source  = "cloudposse/waf/aws"
-  version = "1.12.0"
+  version = "1.13.0"
 
   description          = var.description
   default_action       = var.default_action
