@@ -40,6 +40,39 @@ usage: |-
                 sampled_requests_enabled: false
   ```
 
+  ### Nested statement rules
+
+  `nested_statement_rules` ANDs several statements together, which is useful for narrowly exempting one
+  operation from a managed rule group finding instead of overriding that finding across a whole path.
+  Each entry in `statements` is a `type` plus a **JSON-encoded string** of the corresponding AWS WAF
+  statement. Supported types are `label_match_statement` and `not_byte_match_statement`; for the latter
+  the supported `field_to_match` keys are `body`, `method`, `single_header` and `uri_path`.
+
+  ```yaml
+  components:
+    terraform:
+      waf:
+        vars:
+          nested_statement_rules:
+            - name: "block-sqli-except-allowed-operation"
+              priority: 10
+              action: block
+              statement:
+                and_statement:
+                  statements:
+                    - type: label_match_statement
+                      statement: '{"scope":"LABEL","key":"awswaf:managed:aws:sql-database:SQLi_Body"}'
+                    - type: not_byte_match_statement
+                      statement: '{"positional_constraint":"CONTAINS","search_string":"allowedOperation","field_to_match":{"body":{"oversize_handling":"CONTINUE"}},"text_transformation":[{"priority":1,"type":"NONE"}]}'
+              visibility_config:
+                cloudwatch_metrics_enabled: false
+                metric_name: "block-sqli-except-allowed-operation"
+                sampled_requests_enabled: false
+  ```
+
+  Note that AWS WAF only forwards the first 8 KB of a request body for inspection, so `oversize_handling`
+  decides what happens to larger bodies (`CONTINUE`, `MATCH` or `NO_MATCH`).
+
   <!-- prettier-ignore-start -->
   <!-- prettier-ignore-end -->
 references:
