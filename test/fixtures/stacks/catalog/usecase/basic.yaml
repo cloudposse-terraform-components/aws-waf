@@ -60,4 +60,21 @@ components:
               cloudwatch_metrics_enabled: false
               metric_name: "allow-us-traffic"
               sampled_requests_enabled: false
+        nested_statement_rules:
+          - name: "block-internal-except-allowed"
+            priority: 4
+            action: block
+            statement:
+              and_statement:
+                statements:
+                  - type: label_match_statement
+                    statement: '{"scope":"LABEL","key":"internal"}'
+                  - type: not_byte_match_statement
+                    statement: '{"positional_constraint":"CONTAINS","search_string":"allowedOperation","field_to_match":{"body":{"oversize_handling":"CONTINUE"}},"text_transformation":[{"priority":1,"type":"NONE"}]}'
+                  - type: not_byte_match_statement
+                    statement: '{"positional_constraint":"EXACTLY","search_string":"GET","field_to_match":{"method":{}},"text_transformation":[{"priority":1,"type":"NONE"}]}'
+            visibility_config:
+              cloudwatch_metrics_enabled: false
+              metric_name: "block-internal-except-allowed"
+              sampled_requests_enabled: false
 

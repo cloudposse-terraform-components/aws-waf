@@ -607,6 +607,75 @@ variable "managed_rule_group_statement_rules" {
   DOC
 }
 
+variable "nested_statement_rules" {
+  type = list(object({
+    name     = string
+    priority = number
+    action   = string
+    custom_response = optional(object({
+      response_code            = string
+      custom_response_body_key = optional(string, null)
+      response_header = optional(object({
+        name  = string
+        value = string
+      }), null)
+    }), null)
+    statement = object({
+      and_statement = object({
+        statements = list(object({
+          type      = string
+          statement = string
+        }))
+      })
+    })
+    visibility_config = optional(object({
+      cloudwatch_metrics_enabled = optional(bool)
+      metric_name                = string
+      sampled_requests_enabled   = optional(bool)
+    }), null)
+  }))
+  default     = null
+  description = <<-DOC
+    Rule statement to define nested statement rules to create nested complex rules including AND, OR, NOT statements.
+
+    action:
+      The actions that AWS WAF should take on nestes requests to conditionally match different and various rules.
+    name:
+      A friendly name of the rule.
+    priority:
+      If you define more than one Rule in a WebACL,
+      AWS WAF evaluates each request against the rules in order based on the value of priority.
+      AWS WAF processes rules with lower priority first.
+
+    statement:
+      and_statement:
+        Additional creation of a conditional group with AND statement
+        See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl#and-statement
+      or_statement:
+        Additional creation of a conditional group with OR statement
+        See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl#or-statement
+      not_statement:
+        Additional creation of a conditional group with NOT statement
+        See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/wafv2_web_acl#not-statement
+
+      Each entry in `statements` is an object of `type` and `statement`, where `statement` is a JSON-encoded
+      string of the corresponding AWS WAF statement. Supported `type` values are `label_match_statement`
+      and `not_byte_match_statement`.
+
+      For `not_byte_match_statement`, the supported `field_to_match` keys are `body`, `method`, `single_header`
+      and `uri_path`. `body` accepts an optional `oversize_handling` (`CONTINUE`, `MATCH`, `NO_MATCH`;
+      defaults to `CONTINUE`), since WAF only forwards the first 8 KB of a request body for inspection.
+
+    visibility_config:
+      Defines and enables Amazon CloudWatch metrics and web request sample collection.
+
+      metric_name:
+        A friendly name of the CloudWatch metric.
+      sampled_requests_enabled:
+        Whether AWS WAF should store a sampling of the web requests that match the rules.
+  DOC
+}
+
 variable "rate_based_statement_rules" {
   type = list(object({
     name     = string

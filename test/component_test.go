@@ -128,6 +128,37 @@ func (s *ComponentSuite) TestBasic() {
 				},
 			},
 		},
+		"nested_statement_rules": []map[string]interface{}{
+			{
+				"name":     "block-internal-except-allowed-" + uniquesuffix,
+				"priority": 4,
+				"action":   "block",
+				"statement": map[string]interface{}{
+					"and_statement": map[string]interface{}{
+						// Inner statements are JSON-encoded strings that the module jsondecodes
+						"statements": []map[string]interface{}{
+							{
+								"type":      "label_match_statement",
+								"statement": hclEscapeJSON(`{"scope":"LABEL","key":"internal"}`),
+							},
+							{
+								"type":      "not_byte_match_statement",
+								"statement": hclEscapeJSON(`{"positional_constraint":"CONTAINS","search_string":"allowedOperation","field_to_match":{"body":{"oversize_handling":"CONTINUE"}},"text_transformation":[{"priority":1,"type":"NONE"}]}`),
+							},
+							{
+								"type":      "not_byte_match_statement",
+								"statement": hclEscapeJSON(`{"positional_constraint":"EXACTLY","search_string":"GET","field_to_match":{"method":{}},"text_transformation":[{"priority":1,"type":"NONE"}]}`),
+							},
+						},
+					},
+				},
+				"visibility_config": map[string]interface{}{
+					"cloudwatch_metrics_enabled": false,
+					"metric_name":                "block-internal-except-allowed",
+					"sampled_requests_enabled":   false,
+				},
+			},
+		},
 	}
 
 	defer s.DestroyAtmosComponent(s.T(), component, stack, &inputs)
@@ -147,6 +178,7 @@ func (s *ComponentSuite) TestBasic() {
 	assertOWASPRule(s.T(), webACL.Rules[0])
 	assertBlockSpecificURIRule(s.T(), inputs["byte_match_statement_rules"].([]map[string]interface{})[0], webACL.Rules[1])
 	assertAllowUSTrafficRule(s.T(), inputs["geo_allowlist_statement_rules"].([]map[string]interface{})[0], webACL.Rules[2])
+	assertBlockInternalExceptAllowedRule(s.T(), inputs["nested_statement_rules"].([]map[string]interface{})[0], webACL.Rules[3])
 
 	// Assert custom response body
 	require.NotNil(s.T(), webACL.CustomResponseBodies)
@@ -587,6 +619,16 @@ func (s *ComponentSuite) TestDisabled() {
 	s.VerifyEnabledFlag(component, stack, nil)
 }
 
+// hclEscapeJSON escapes the double quotes in a JSON string so it survives the trip through
+// Atmos as a command-line variable. Inputs are rendered into `-var name=<HCL>` by terratest's
+// FormatTerraformVarsAsArgs, whose primitiveToHclString wraps nested strings in quotes without
+// escaping any quotes they already contain — a raw JSON value produces invalid HCL and Terraform
+// fails with "Missing attribute separator". Terraform unescapes these before the module sees them,
+// so the component still receives (and jsondecodes) the original JSON.
+func hclEscapeJSON(json string) string {
+	return strings.ReplaceAll(json, `"`, `\"`)
+}
+
 func getWebACLByIDAndName(t *testing.T, client *wafv2.Client, id string, arn string) *types.WebACL {
 	arnParts := strings.Split(arn, "/")
 	name := arnParts[len(arnParts)-2]
@@ -633,6 +675,36 @@ func assertAllowUSTrafficRule(t *testing.T, expectedRule map[string]interface{},
 	statement := rule.Statement.NotStatement.Statement.GeoMatchStatement
 	require.NotNil(t, statement)
 	assert.EqualValues(t, "US", statement.CountryCodes[0])
+}
+
+func assertBlockInternalExceptAllowedRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {
+	assert.Equal(t, expectedRule["name"], *rule.Name)
+	assert.EqualValues(t, expectedRule["priority"], rule.Priority)
+	assert.NotNil(t, rule.Action.Block)
+	assert.Nil(t, rule.Action.Allow)
+
+	statement := rule.Statement.AndStatement
+	require.NotNil(t, statement)
+	require.Equal(t, 3, len(statement.Statements))
+
+	labelMatch := statement.Statements[0].LabelMatchStatement
+	require.NotNil(t, labelMatch)
+	assert.Equal(t, types.LabelMatchScopeLabel, labelMatch.Scope)
+	assert.Equal(t, "internal", *labelMatch.Key)
+
+	// not_byte_match_statement inspecting the request body
+	bodyMatch := statement.Statements[1].NotStatement.Statement.ByteMatchStatement
+	require.NotNil(t, bodyMatch)
+	assert.Equal(t, types.PositionalConstraintContains, bodyMatch.PositionalConstraint)
+	assert.Equal(t, "allowedOperation", string(bodyMatch.SearchString))
+	assert.Equal(t, types.Body{OversizeHandling: types.OversizeHandlingContinue}, *bodyMatch.FieldToMatch.Body)
+
+	// not_byte_match_statement inspecting the HTTP method
+	methodMatch := statement.Statements[2].NotStatement.Statement.ByteMatchStatement
+	require.NotNil(t, methodMatch)
+	assert.Equal(t, types.PositionalConstraintExactly, methodMatch.PositionalConstraint)
+	assert.Equal(t, "GET", string(methodMatch.SearchString))
+	require.NotNil(t, methodMatch.FieldToMatch.Method)
 }
 
 func assertBlockNonUSTrafficRule(t *testing.T, expectedRule map[string]interface{}, rule types.Rule) {

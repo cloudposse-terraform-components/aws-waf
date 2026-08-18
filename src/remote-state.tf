@@ -1,6 +1,6 @@
 module "association_resource_components" {
   source  = "cloudposse/stack-config/yaml//modules/remote-state"
-  version = "1.8.0"
+  version = "2.0.0"
 
   count = local.enabled ? length(var.association_resource_component_selectors) : 0
 
@@ -15,7 +15,7 @@ module "association_resource_components" {
 
 module "log_destination_components" {
   source  = "cloudposse/stack-config/yaml//modules/remote-state"
-  version = "1.8.0"
+  version = "2.0.0"
 
   count = local.enabled ? length(var.log_destination_component_selectors) : 0
 
