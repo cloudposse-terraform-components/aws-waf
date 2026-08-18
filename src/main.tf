@@ -18,7 +18,7 @@ locals {
 
 module "aws_waf" {
   source  = "cloudposse/waf/aws"
-  version = "1.17.0"
+  version = "1.18.0"
 
   description          = var.description
   default_action       = var.default_action
@@ -41,6 +41,7 @@ module "aws_waf" {
   geo_match_statement_rules                   = var.geo_match_statement_rules
   ip_set_reference_statement_rules            = var.ip_set_reference_statement_rules
   managed_rule_group_statement_rules          = var.managed_rule_group_statement_rules
+  nested_statement_rules                      = var.nested_statement_rules
   rate_based_statement_rules                  = var.rate_based_statement_rules
   regex_pattern_set_reference_statement_rules = var.regex_pattern_set_reference_statement_rules
   regex_match_statement_rules                 = var.regex_match_statement_rules
