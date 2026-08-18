@@ -139,15 +139,15 @@ func (s *ComponentSuite) TestBasic() {
 						"statements": []map[string]interface{}{
 							{
 								"type":      "label_match_statement",
-								"statement": `{"scope":"LABEL","key":"internal"}`,
+								"statement": hclEscapeJSON(`{"scope":"LABEL","key":"internal"}`),
 							},
 							{
 								"type":      "not_byte_match_statement",
-								"statement": `{"positional_constraint":"CONTAINS","search_string":"allowedOperation","field_to_match":{"body":{"oversize_handling":"CONTINUE"}},"text_transformation":[{"priority":1,"type":"NONE"}]}`,
+								"statement": hclEscapeJSON(`{"positional_constraint":"CONTAINS","search_string":"allowedOperation","field_to_match":{"body":{"oversize_handling":"CONTINUE"}},"text_transformation":[{"priority":1,"type":"NONE"}]}`),
 							},
 							{
 								"type":      "not_byte_match_statement",
-								"statement": `{"positional_constraint":"EXACTLY","search_string":"GET","field_to_match":{"method":{}},"text_transformation":[{"priority":1,"type":"NONE"}]}`,
+								"statement": hclEscapeJSON(`{"positional_constraint":"EXACTLY","search_string":"GET","field_to_match":{"method":{}},"text_transformation":[{"priority":1,"type":"NONE"}]}`),
 							},
 						},
 					},
@@ -617,6 +617,16 @@ func (s *ComponentSuite) TestDisabled() {
 	const awsRegion = "us-east-2"
 
 	s.VerifyEnabledFlag(component, stack, nil)
+}
+
+// hclEscapeJSON escapes the double quotes in a JSON string so it survives the trip through
+// Atmos as a command-line variable. Inputs are rendered into `-var name=<HCL>` by terratest's
+// FormatTerraformVarsAsArgs, whose primitiveToHclString wraps nested strings in quotes without
+// escaping any quotes they already contain — a raw JSON value produces invalid HCL and Terraform
+// fails with "Missing attribute separator". Terraform unescapes these before the module sees them,
+// so the component still receives (and jsondecodes) the original JSON.
+func hclEscapeJSON(json string) string {
+	return strings.ReplaceAll(json, `"`, `\"`)
 }
 
 func getWebACLByIDAndName(t *testing.T, client *wafv2.Client, id string, arn string) *types.WebACL {
