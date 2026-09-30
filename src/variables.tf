@@ -1327,3 +1327,63 @@ variable "association_resource_component_selectors" {
   DOC
   nullable    = false
 }
+
+variable "and_match_statement_rules" {
+  type = list(object({
+    name     = string
+    priority = number
+    action   = string
+    captcha_config = optional(object({
+      immunity_time_property = object({
+        immunity_time = number
+      })
+    }), null)
+    rule_label = optional(list(string), null)
+    statement = object({
+      host_regex            = optional(string, null)
+      uri_path_regex        = optional(string, null)
+      not_geo_country_codes = optional(list(string), null)
+      label_match = optional(object({
+        scope = string
+        key   = string
+      }), null)
+    })
+    visibility_config = optional(object({
+      cloudwatch_metrics_enabled = optional(bool)
+      metric_name                = string
+      sampled_requests_enabled   = optional(bool)
+    }), null)
+  }))
+  default     = null
+  description = <<-DOC
+    Composite rule = AND( regex_match(Host host_regex | uri_path uri_path_regex), <NOT geo_match | label_match> ).
+    Scopes an action (e.g. captcha) to a Host AND a geo/label condition without the generic
+    and/or/not plumbing. Express "host AND (foreign OR anonymous)" as two rules: one with
+    not_geo_country_codes, one with label_match.
+  DOC
+}
+
+variable "not_host_match_statement_rules" {
+  type = list(object({
+    name       = string
+    priority   = number
+    action     = string
+    rule_label = optional(list(string), null)
+    statement = object({
+      host_regex = string
+    })
+    visibility_config = optional(object({
+      cloudwatch_metrics_enabled = optional(bool)
+      metric_name                = string
+      sampled_requests_enabled   = optional(bool)
+    }), null)
+  }))
+  default     = null
+  description = <<-DOC
+    Block/count requests whose Host header does NOT match host_regex (a not_statement
+    around a regex_match on the Host header). Matches raw-IP-as-host and absent/empty Host
+    (a missing field is a non-match, so not() => true) , i.e. host-less vulnerability
+    scanners that evade host-scoped rules. Set host_regex to an allowed-domain suffix
+    pattern.
+  DOC
+}
