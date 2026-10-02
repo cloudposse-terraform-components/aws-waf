@@ -696,7 +696,7 @@ variable "rate_based_statement_rules" {
         header_name       = string
       }), null)
       scope_down_statement = optional(object({
-        byte_match_statement = object({
+        byte_match_statement = optional(object({
           positional_constraint = string
           search_string         = string
           field_to_match = object({
@@ -712,7 +712,24 @@ variable "rate_based_statement_rules" {
             priority = number
             type     = string
           }))
-        })
+        }), null)
+        or_byte_match_statements = optional(list(object({
+          positional_constraint = string
+          search_string         = string
+          field_to_match = object({
+            all_query_arguments   = optional(bool)
+            body                  = optional(bool)
+            method                = optional(bool)
+            query_string          = optional(bool)
+            single_header         = optional(object({ name = string }))
+            single_query_argument = optional(object({ name = string }))
+            uri_path              = optional(bool)
+          })
+          text_transformation = list(object({
+            priority = number
+            type     = string
+          }))
+        })), null)
       }), null)
     })
     visibility_config = optional(object({
